@@ -1,4 +1,4 @@
-
+#include <PubSubClient.h>
 #include <ESP8266WiFi.h>
 #include <ESP8266mDNS.h>
 #include <WiFiUdp.h>
@@ -16,13 +16,33 @@ OneWire oneWire(ONE_WIRE_BUS);
 DallasTemperature sensors(&oneWire);
 
 // WiFi connection
-const char* ssid = "FRITZBoxKarin";
-const char* password = "2871247716916185";
+const char* ssid = "ahah";
+const char* password = "nodeldynobe";
+
+#define MQTT_SERVER "io.adafruit.com"
+#define MQTT_USR "HACKER3000"
+#define MQTT_KEY "nope"
+//topic to publish to for the sensor
+char* tempTopic = "HACKER3000/f/Weather";
+char* humTopic = "HACKER3000/f/Weather";
+char* baseTopic = "HACKER3000/f/Weather";
+
+
+//MQTT callback
+void callback(char* topic, byte* payload, unsigned int length) {
+  // handle message arrived
+  digitalWrite(D4, !digitalRead(D4));
+  Serial.println(topic);
+  Serial.println(length);
+}
 
 WiFiServer server(80);
+WiFiClient wifiClient;
+PubSubClient client(MQTT_SERVER, 1883, callback, wifiClient);
 
 int ulReqcount = 0;
 int ulReconncount = 0;
+
 void setup() {
   // put your setup code here, to run once:
   ulReqcount = 0;
@@ -80,6 +100,23 @@ void setup() {
   Serial.println("Server started");
 }
 
+void sendMQTT() {
+  float temp = sensors.getTempCByIndex(0);
+  int hum = analogRead(A0);
+  char* st = "SoilTemp";
+  char* sh = "SoilHum";
+  char* ctemp = "";
+  char* chum = "";
+  char result[8]; // Buffer big enough for 7-character float
+  dtostrf(temp, 6, 2, result); // Leave room for too large numbers!
+
+  sprintf(ctemp, "%s = %s", st, result);
+  sprintf(chum, "%s = %i", sh, hum);
+
+  client.publish(tempTopic, ctemp);
+  client.publish(humTopic, chum);
+}
+
 void WiFiStart() {
   ulReconncount++;
 
@@ -94,7 +131,26 @@ void WiFiStart() {
   WiFi.begin(ssid, password);
   delay(5000);
   digitalWrite(D4, LOW);
+  //make sure we are connected to WIFI before attemping to reconnect to MQTT
+  // Loop until we're reconnected to the MQTT server
+  while (!client.connected()) {
+    Serial.print("+");
+    digitalWrite(D4, !digitalRead(D4));
+    // Generate client name based on MAC address and last 8 bits of microsecond counter
+    String clientName;
+    clientName += "SoilSens-";
+    uint8_t mac[6];
+    WiFi.macAddress(mac);
+    clientName += macToStr(mac);
+
+    //if connected, subscribe to the topic(s) we want to be notified about
+    if (client.connect(clientName.c_str(), MQTT_USR, MQTT_KEY)) {
+      //subscribe to topics here
+    }
+  }
+  client.publish(baseTopic, "Hi");
 }
+
 void handleWeb() {
 
   ///////////////////////////////////
@@ -287,6 +343,21 @@ String MakeHTTPHeader(unsigned long ulLength)
   return (sHeader);
 }
 
+//generate unique name from MAC addr
+String macToStr(const uint8_t* mac) {
+
+  String result;
+
+  for (int i = 0; i < 6; ++i) {
+    result += String(mac[i], 16);
+
+    if (i < 5) {
+      result += ':';
+    }
+  }
+
+  return result;
+}
 
 void loop() {
   // put your main code here, to run repeatedly:
@@ -296,4 +367,23 @@ void loop() {
   }
   handleWeb();
   ArduinoOTA.handle();
+  //reconnect if connection is lost
+  if (!client.connected() && WiFi.status() == 3) {
+    WiFiStart();
+  }
+
+  unsigned long thisMillis = 0;
+  unsigned long lastMillis = 0;
+  thisMillis = millis();
+
+  if (thisMillis - lastMillis > 60000)
+  {
+    sendMQTT();
+    lastMillis = thisMillis;
+  }
+
+  //maintain MQTT connection
+  client.loop();
+  //MUST delay to allow ESP8266 WIFI functions to run
+  delay(10);
 }
