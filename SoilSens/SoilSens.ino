@@ -371,15 +371,11 @@ void loop() {
   if (!client.connected() && WiFi.status() == 3) {
     WiFiStart();
   }
-
-  unsigned long thisMillis = 0;
-  unsigned long lastMillis = 0;
-  thisMillis = millis();
-
-  if (thisMillis - lastMillis > 60000)
-  {
+  int period = 60000;
+  unsigned long time_now = 0;
+  if (millis() > time_now + period) {
+    time_now = millis();
     sendMQTT();
-    lastMillis = thisMillis;
   }
 
   //maintain MQTT connection
